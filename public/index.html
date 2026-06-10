@@ -8,486 +8,159 @@
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
   <style>
-    /* ── Reset & Base ─────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg:        #0d1117;
-      --surface:   #161b22;
-      --surface2:  #21262d;
-      --border:    #30363d;
-      --accent:    #2f81f7;
-      --accent2:   #388bfd;
-      --green:     #3fb950;
-      --yellow:    #d29922;
-      --red:       #f85149;
-      --text:      #e6edf3;
-      --muted:     #8b949e;
-      --mono:      'DM Mono', monospace;
-      --sans:      'DM Sans', sans-serif;
-      --display:   'Syne', sans-serif;
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;
+      --accent:#2f81f7;--accent2:#388bfd;--green:#3fb950;--yellow:#d29922;
+      --red:#f85149;--text:#e6edf3;--muted:#8b949e;
+      --mono:'DM Mono',monospace;--sans:'DM Sans',sans-serif;--display:'Syne',sans-serif;
     }
+    html{scroll-behavior:smooth}
+    body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
+    body::before{content:'';position:fixed;inset:0;
+      background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);
+      background-size:48px 48px;opacity:.15;pointer-events:none;z-index:0}
+    .wrapper{position:relative;z-index:1;max-width:900px;margin:0 auto;padding:48px 24px 96px}
 
-    html { scroll-behavior: smooth; }
+    /* ── header ── */
+    header{display:flex;align-items:center;gap:16px;margin-bottom:48px}
+    .logo-badge{width:48px;height:48px;background:var(--accent);border-radius:12px;
+      display:grid;place-items:center;flex-shrink:0;box-shadow:0 0 24px rgba(47,129,247,.4)}
+    .logo-badge svg{width:26px;height:26px}
+    .header-text h1{font-family:var(--display);font-size:1.5rem;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+    .header-text p{font-size:.8rem;color:var(--muted);font-family:var(--mono);margin-top:2px}
+    .version-tag{margin-left:auto;font-family:var(--mono);font-size:.7rem;color:var(--muted);
+      background:var(--surface2);border:1px solid var(--border);padding:4px 10px;border-radius:20px}
 
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--sans);
-      min-height: 100vh;
-      overflow-x: hidden;
-    }
+    /* ── tabs ── */
+    .tabs{display:flex;gap:4px;margin-bottom:24px;background:var(--surface);border:1px solid var(--border);
+      border-radius:10px;padding:4px}
+    .tab{flex:1;padding:10px 16px;border:none;background:transparent;color:var(--muted);
+      font-family:var(--display);font-size:.82rem;font-weight:700;border-radius:7px;cursor:pointer;transition:.2s}
+    .tab.active{background:var(--accent);color:#fff;box-shadow:0 2px 12px rgba(47,129,247,.4)}
+    .tab-panel{display:none}.tab-panel.active{display:block}
 
-    /* ── Grid de fundo ────────────────────────────────────────── */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background-image:
-        linear-gradient(var(--border) 1px, transparent 1px),
-        linear-gradient(90deg, var(--border) 1px, transparent 1px);
-      background-size: 48px 48px;
-      opacity: .18;
-      pointer-events: none;
-      z-index: 0;
-    }
+    /* ── section label ── */
+    .section-label{font-family:var(--mono);font-size:.7rem;font-weight:500;letter-spacing:.12em;
+      text-transform:uppercase;color:var(--accent);margin-bottom:12px}
 
-    /* ── Layout ───────────────────────────────────────────────── */
-    .wrapper {
-      position: relative;
-      z-index: 1;
-      max-width: 860px;
-      margin: 0 auto;
-      padding: 56px 24px 96px;
-    }
+    /* ── card ── */
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px}
 
-    /* ── Header ───────────────────────────────────────────────── */
-    header {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      margin-bottom: 48px;
-    }
+    /* ── upload ── */
+    .upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+    @media(max-width:560px){.upload-grid{grid-template-columns:1fr}}
+    .drop-zone{position:relative;border:2px dashed var(--border);border-radius:10px;padding:24px 16px;
+      text-align:center;cursor:pointer;transition:.2s}
+    .drop-zone:hover,.drop-zone.drag-over{border-color:var(--accent);background:rgba(47,129,247,.06)}
+    .drop-zone.ready{border-color:var(--green);background:rgba(63,185,80,.06)}
+    .drop-zone input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    .drop-icon{font-size:1.8rem;margin-bottom:6px;display:block}
+    .drop-label{font-family:var(--display);font-size:.82rem;font-weight:700;color:var(--text);display:block;margin-bottom:3px}
+    .drop-hint{font-size:.7rem;color:var(--muted);font-family:var(--mono)}
+    .drop-filename{margin-top:6px;font-family:var(--mono);font-size:.7rem;color:var(--green);word-break:break-all}
 
-    .logo-badge {
-      width: 48px; height: 48px;
-      background: var(--accent);
-      border-radius: 12px;
-      display: grid; place-items: center;
-      flex-shrink: 0;
-      box-shadow: 0 0 24px rgba(47,129,247,.4);
-    }
+    /* ── estoque grid ── */
+    .est-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:16px}
+    .est-field{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px}
+    .est-field label{display:block;font-family:var(--mono);font-size:.68rem;color:var(--muted);
+      text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+    .est-field .subst-name{font-family:var(--display);font-size:.78rem;font-weight:700;color:var(--text);margin-bottom:8px}
+    .est-field input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;
+      color:var(--text);font-family:var(--mono);font-size:.82rem;padding:7px 10px;outline:none;transition:.2s}
+    .est-field input:focus{border-color:var(--accent)}
+    .est-field .last-val{font-family:var(--mono);font-size:.65rem;color:var(--green);margin-top:5px}
 
-    .logo-badge svg { width: 26px; height: 26px; }
+    /* ── field ── */
+    .field label{display:block;font-family:var(--mono);font-size:.7rem;color:var(--muted);
+      text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+    .field input,.field select{width:100%;background:var(--surface2);border:1px solid var(--border);
+      border-radius:8px;color:var(--text);font-family:var(--mono);font-size:.82rem;padding:8px 12px;outline:none;transition:.2s}
+    .field input:focus,.field select:focus{border-color:var(--accent)}
+    .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+    @media(max-width:560px){.field-row{grid-template-columns:1fr}}
 
-    .header-text h1 {
-      font-family: var(--display);
-      font-size: 1.5rem;
-      font-weight: 800;
-      letter-spacing: -.02em;
-      line-height: 1.1;
-    }
+    /* ── botões ── */
+    .btn-primary{display:flex;align-items:center;gap:10px;background:var(--accent);color:#fff;
+      font-family:var(--display);font-size:.9rem;font-weight:700;border:none;border-radius:10px;
+      padding:14px 28px;cursor:pointer;width:100%;justify-content:center;transition:.2s;
+      box-shadow:0 4px 20px rgba(47,129,247,.35)}
+    .btn-primary:hover:not(:disabled){background:var(--accent2);box-shadow:0 6px 28px rgba(47,129,247,.5);transform:translateY(-1px)}
+    .btn-primary:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
+    .btn-secondary{display:flex;align-items:center;gap:8px;background:var(--surface2);color:var(--text);
+      font-family:var(--display);font-size:.82rem;font-weight:700;border:1px solid var(--border);
+      border-radius:8px;padding:10px 18px;cursor:pointer;transition:.2s}
+    .btn-secondary:hover{border-color:var(--accent);color:var(--accent)}
+    .btn-download{display:flex;align-items:center;gap:10px;background:var(--green);color:#0d1117;
+      font-family:var(--display);font-size:.9rem;font-weight:800;border:none;border-radius:10px;
+      padding:14px 28px;cursor:pointer;width:100%;justify-content:center;transition:.2s;
+      box-shadow:0 4px 20px rgba(63,185,80,.3)}
+    .btn-download:hover{filter:brightness(1.1);transform:translateY(-1px)}
+    .btn-danger{background:transparent;border:1px solid var(--red);color:var(--red);
+      font-family:var(--mono);font-size:.72rem;border-radius:6px;padding:5px 12px;cursor:pointer;transition:.2s}
+    .btn-danger:hover{background:var(--red);color:#fff}
 
-    .header-text p {
-      font-size: .8rem;
-      color: var(--muted);
-      font-family: var(--mono);
-      margin-top: 2px;
-    }
+    /* ── progresso ── */
+    .progress-wrap{display:none;margin-top:16px}
+    .progress-wrap.visible{display:block}
+    .progress-track{height:4px;background:var(--surface2);border-radius:4px;overflow:hidden;margin-bottom:8px}
+    .progress-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--green));border-radius:4px;transition:width .3s}
+    .progress-text{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+    .log-box{display:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+      padding:12px 16px;margin-top:12px;font-family:var(--mono);font-size:.72rem;color:var(--muted);
+      max-height:140px;overflow-y:auto;line-height:1.7}
+    .log-box.visible{display:block}
+    .log-ok{color:var(--green)}.log-warn{color:var(--yellow)}.log-err{color:var(--red)}
 
-    /* ── Badge versão ─────────────────────────────────────────── */
-    .version-tag {
-      margin-left: auto;
-      font-family: var(--mono);
-      font-size: .7rem;
-      color: var(--muted);
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      padding: 4px 10px;
-      border-radius: 20px;
-    }
+    /* ── resultado ── */
+    .result-card{display:none;background:var(--surface);border:1px solid var(--green);border-radius:12px;
+      padding:24px;margin-top:16px;animation:fadeUp .4s ease}
+    .result-card.visible{display:block}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    .result-title{font-family:var(--display);font-size:1rem;font-weight:800;color:var(--green);
+      margin-bottom:12px;display:flex;align-items:center;gap:8px}
+    .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px}
+    .stat-box{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center}
+    .stat-num{font-family:var(--display);font-size:1.4rem;font-weight:800;color:var(--text)}
+    .stat-lbl{font-family:var(--mono);font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
 
-    /* ── Seção ────────────────────────────────────────────────── */
-    .section-label {
-      font-family: var(--mono);
-      font-size: .7rem;
-      font-weight: 500;
-      letter-spacing: .12em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 12px;
-    }
+    /* ── histórico ── */
+    .hist-empty{text-align:center;padding:48px 24px;color:var(--muted);font-family:var(--mono);font-size:.8rem}
+    .hist-entry{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+      padding:16px 20px;margin-bottom:12px;transition:.2s}
+    .hist-entry:hover{border-color:var(--accent)}
+    .hist-header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+    .hist-periodo{font-family:var(--display);font-size:.9rem;font-weight:700;color:var(--text)}
+    .hist-date{font-family:var(--mono);font-size:.7rem;color:var(--muted);margin-left:auto}
+    .hist-substs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+    .hist-pill{font-family:var(--mono);font-size:.65rem;background:var(--surface2);
+      border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--muted)}
+    .hist-pill span{color:var(--green)}
+    .hist-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .hist-toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
 
-    /* ── Card ─────────────────────────────────────────────────── */
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 24px;
-      margin-bottom: 16px;
-    }
+    /* ── spinner ── */
+    .spinner{width:18px;height:18px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;
+      border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+    @keyframes spin{to{transform:rotate(360deg)}}
 
-    /* ── Upload zone ──────────────────────────────────────────── */
-    .upload-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin-bottom: 16px;
-    }
+    /* ── steps ── */
+    .steps-info{display:flex;flex-direction:column;gap:10px}
+    .step-info{display:flex;align-items:flex-start;gap:14px;background:var(--surface2);
+      border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+    .step-num-i{width:26px;height:26px;background:var(--accent);border-radius:50%;
+      display:grid;place-items:center;font-family:var(--mono);font-size:.72rem;flex-shrink:0;margin-top:1px}
+    .step-title-i{font-family:var(--display);font-size:.82rem;font-weight:700;margin-bottom:3px}
+    .step-desc-i{font-size:.78rem;color:var(--muted);line-height:1.5}
+    code{font-family:var(--mono);background:var(--surface2);border:1px solid var(--border);
+      padding:1px 6px;border-radius:4px;font-size:.8em;color:var(--accent2)}
 
-    @media (max-width: 560px) {
-      .upload-grid { grid-template-columns: 1fr; }
-    }
-
-    .drop-zone {
-      position: relative;
-      border: 2px dashed var(--border);
-      border-radius: 10px;
-      padding: 28px 16px;
-      text-align: center;
-      cursor: pointer;
-      transition: border-color .2s, background .2s;
-    }
-
-    .drop-zone:hover,
-    .drop-zone.drag-over {
-      border-color: var(--accent);
-      background: rgba(47,129,247,.06);
-    }
-
-    .drop-zone.ready {
-      border-color: var(--green);
-      background: rgba(63,185,80,.06);
-    }
-
-    .drop-zone input[type="file"] {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      cursor: pointer;
-      width: 100%;
-      height: 100%;
-    }
-
-    .drop-icon {
-      font-size: 2rem;
-      margin-bottom: 8px;
-      display: block;
-    }
-
-    .drop-label {
-      font-family: var(--display);
-      font-size: .85rem;
-      font-weight: 700;
-      color: var(--text);
-      display: block;
-      margin-bottom: 4px;
-    }
-
-    .drop-hint {
-      font-size: .72rem;
-      color: var(--muted);
-      font-family: var(--mono);
-    }
-
-    .drop-filename {
-      margin-top: 8px;
-      font-family: var(--mono);
-      font-size: .72rem;
-      color: var(--green);
-      word-break: break-all;
-    }
-
-    /* ── Campo período ────────────────────────────────────────── */
-    .period-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr auto;
-      gap: 12px;
-      align-items: end;
-      margin-bottom: 16px;
-    }
-
-    @media (max-width: 560px) {
-      .period-row { grid-template-columns: 1fr 1fr; }
-    }
-
-    .field label {
-      display: block;
-      font-family: var(--mono);
-      font-size: .7rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: .08em;
-      margin-bottom: 6px;
-    }
-
-    .field input, .field select {
-      width: 100%;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text);
-      font-family: var(--mono);
-      font-size: .82rem;
-      padding: 8px 12px;
-      outline: none;
-      transition: border-color .2s;
-    }
-
-    .field input:focus, .field select:focus {
-      border-color: var(--accent);
-    }
-
-    /* ── Botão principal ──────────────────────────────────────── */
-    .btn-primary {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: var(--accent);
-      color: #fff;
-      font-family: var(--display);
-      font-size: .9rem;
-      font-weight: 700;
-      border: none;
-      border-radius: 10px;
-      padding: 14px 28px;
-      cursor: pointer;
-      width: 100%;
-      justify-content: center;
-      transition: background .2s, transform .1s, box-shadow .2s;
-      box-shadow: 0 4px 20px rgba(47,129,247,.35);
-    }
-
-    .btn-primary:hover:not(:disabled) {
-      background: var(--accent2);
-      box-shadow: 0 6px 28px rgba(47,129,247,.5);
-      transform: translateY(-1px);
-    }
-
-    .btn-primary:active:not(:disabled) { transform: translateY(0); }
-
-    .btn-primary:disabled {
-      opacity: .4;
-      cursor: not-allowed;
-      box-shadow: none;
-    }
-
-    /* ── Barra de progresso ───────────────────────────────────── */
-    .progress-wrap {
-      display: none;
-      margin-top: 16px;
-    }
-
-    .progress-wrap.visible { display: block; }
-
-    .progress-track {
-      height: 4px;
-      background: var(--surface2);
-      border-radius: 4px;
-      overflow: hidden;
-      margin-bottom: 8px;
-    }
-
-    .progress-bar {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, var(--accent), var(--green));
-      border-radius: 4px;
-      transition: width .3s ease;
-    }
-
-    .progress-text {
-      font-family: var(--mono);
-      font-size: .72rem;
-      color: var(--muted);
-    }
-
-    /* ── Log ─────────────────────────────────────────────────── */
-    .log-box {
-      display: none;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px 16px;
-      margin-top: 12px;
-      font-family: var(--mono);
-      font-size: .72rem;
-      color: var(--muted);
-      max-height: 160px;
-      overflow-y: auto;
-      line-height: 1.7;
-    }
-
-    .log-box.visible { display: block; }
-    .log-ok  { color: var(--green); }
-    .log-warn{ color: var(--yellow); }
-    .log-err { color: var(--red); }
-
-    /* ── Resultado ────────────────────────────────────────────── */
-    .result-card {
-      display: none;
-      background: var(--surface);
-      border: 1px solid var(--green);
-      border-radius: 12px;
-      padding: 24px;
-      margin-top: 16px;
-      animation: fadeUp .4s ease;
-    }
-
-    .result-card.visible { display: block; }
-
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(12px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    .result-title {
-      font-family: var(--display);
-      font-size: 1rem;
-      font-weight: 800;
-      color: var(--green);
-      margin-bottom: 12px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-
-    .stat-box {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px;
-      text-align: center;
-    }
-
-    .stat-num {
-      font-family: var(--display);
-      font-size: 1.5rem;
-      font-weight: 800;
-      color: var(--text);
-    }
-
-    .stat-lbl {
-      font-family: var(--mono);
-      font-size: .65rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: .08em;
-    }
-
-    .btn-download {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: var(--green);
-      color: #0d1117;
-      font-family: var(--display);
-      font-size: .9rem;
-      font-weight: 800;
-      border: none;
-      border-radius: 10px;
-      padding: 14px 28px;
-      cursor: pointer;
-      width: 100%;
-      justify-content: center;
-      transition: filter .2s, transform .1s;
-      box-shadow: 0 4px 20px rgba(63,185,80,.3);
-    }
-
-    .btn-download:hover {
-      filter: brightness(1.1);
-      transform: translateY(-1px);
-    }
-
-    /* ── Instruções ───────────────────────────────────────────── */
-    .steps {
-      counter-reset: step;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .step {
-      display: flex;
-      align-items: flex-start;
-      gap: 14px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 14px 16px;
-    }
-
-    .step-num {
-      counter-increment: step;
-      width: 26px; height: 26px;
-      background: var(--accent);
-      border-radius: 50%;
-      display: grid; place-items: center;
-      font-family: var(--mono);
-      font-size: .72rem;
-      font-weight: 500;
-      flex-shrink: 0;
-      margin-top: 1px;
-    }
-
-    .step-title {
-      font-family: var(--display);
-      font-size: .82rem;
-      font-weight: 700;
-      margin-bottom: 3px;
-    }
-
-    .step-desc {
-      font-size: .78rem;
-      color: var(--muted);
-      line-height: 1.5;
-    }
-
-    code {
-      font-family: var(--mono);
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      padding: 1px 6px;
-      border-radius: 4px;
-      font-size: .8em;
-      color: var(--accent2);
-    }
-
-    /* ── Footer ───────────────────────────────────────────────── */
-    footer {
-      margin-top: 48px;
-      text-align: center;
-      font-family: var(--mono);
-      font-size: .7rem;
-      color: var(--muted);
-    }
-
-    footer a { color: var(--accent); text-decoration: none; }
-
-    /* ── Spinner ──────────────────────────────────────────────── */
-    .spinner {
-      width: 18px; height: 18px;
-      border: 2px solid rgba(255,255,255,.3);
-      border-top-color: #fff;
-      border-radius: 50%;
-      animation: spin .7s linear infinite;
-      flex-shrink: 0;
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
+    footer{margin-top:48px;text-align:center;font-family:var(--mono);font-size:.7rem;color:var(--muted)}
   </style>
 </head>
 <body>
 <div class="wrapper">
 
-  <!-- Header -->
   <header>
     <div class="logo-badge">
       <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round">
@@ -501,120 +174,171 @@
       <h1>Controlados</h1>
       <p>Fórmula Animal · Farmácia Veterinária</p>
     </div>
-    <span class="version-tag">v1.0</span>
+    <span class="version-tag">v2.0</span>
   </header>
 
-  <!-- Upload -->
-  <div class="section-label">01 · Importar relatórios</div>
-  <div class="card">
-    <div class="upload-grid">
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('gerar')">Gerar Planilha</button>
+    <button class="tab" onclick="switchTab('historico')">Histórico</button>
+    <button class="tab" onclick="switchTab('ajuda')">Como usar</button>
+  </div>
 
-      <div class="drop-zone" id="zone-mov">
-        <input type="file" id="file-mov" accept=".xls,.xlsx" />
-        <span class="drop-icon">📋</span>
-        <span class="drop-label">MOVIMENTO.XLS</span>
-        <span class="drop-hint">Movimento Controlados Período</span>
-        <div class="drop-filename" id="fname-mov"></div>
+  <!-- ══════════ TAB GERAR ══════════ -->
+  <div class="tab-panel active" id="tab-gerar">
+
+    <!-- Upload -->
+    <div class="section-label">01 · Importar relatórios do Farma Fácil</div>
+    <div class="card">
+      <div class="upload-grid">
+        <div class="drop-zone" id="zone-mov">
+          <input type="file" id="file-mov" accept=".xls,.xlsx" />
+          <span class="drop-icon">📋</span>
+          <span class="drop-label">MOVIMENTO.XLS</span>
+          <span class="drop-hint">Movimento Controlados Período</span>
+          <div class="drop-filename" id="fname-mov"></div>
+        </div>
+        <div class="drop-zone" id="zone-ce">
+          <input type="file" id="file-ce" accept=".xls,.xlsx" />
+          <span class="drop-icon">📄</span>
+          <span class="drop-label">CLIENTE_END.XLS</span>
+          <span class="drop-hint">Registro de Receituário Geral</span>
+          <div class="drop-filename" id="fname-ce"></div>
+        </div>
       </div>
 
-      <div class="drop-zone" id="zone-ce">
-        <input type="file" id="file-ce" accept=".xls,.xlsx" />
-        <span class="drop-icon">📄</span>
-        <span class="drop-label">CLIENTE_END.XLS</span>
-        <span class="drop-hint">Registro de Receituário Geral</span>
-        <div class="drop-filename" id="fname-ce"></div>
+      <!-- Estabelecimento e período -->
+      <div class="field-row">
+        <div class="field">
+          <label>Estabelecimento</label>
+          <input type="text" id="estabelecimento" value="R S O Manipulação Animal" />
+        </div>
+        <div class="field">
+          <label>Período (ex: Jan-Jun/2026)</label>
+          <input type="text" id="periodo-label" placeholder="ex: 1º Semestre 2026" />
+        </div>
       </div>
-
     </div>
 
-    <!-- Período e estoque inicial -->
-    <div class="period-row">
-      <div class="field">
-        <label>Estoque inicial (g) — padrão</label>
-        <input type="number" id="est-inicial" value="0" step="0.0001" min="0" />
-      </div>
-      <div class="field">
-        <label>Estabelecimento</label>
-        <input type="text" id="estabelecimento" value="R S O Manipulação Animal" />
-      </div>
+    <!-- Estoque inicial por substância -->
+    <div class="section-label">02 · Estoque inicial por substância</div>
+    <div class="card">
+      <div id="est-grid" class="est-grid"></div>
+      <p style="font-size:.75rem;color:var(--muted);font-family:var(--mono)">
+        ↑ Valores pré-preenchidos com o estoque final do último período registrado.
+        Ajuste se necessário antes de gerar.
+      </p>
     </div>
 
-    <!-- Botão -->
+    <!-- Gerar -->
     <button class="btn-primary" id="btn-gerar" disabled>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
       Gerar Planilha de Controlados
     </button>
 
-    <!-- Progresso -->
     <div class="progress-wrap" id="progress-wrap">
-      <div class="progress-track">
-        <div class="progress-bar" id="progress-bar"></div>
-      </div>
+      <div class="progress-track"><div class="progress-bar" id="progress-bar"></div></div>
       <div class="progress-text" id="progress-text">Aguardando...</div>
     </div>
-
-    <!-- Log -->
     <div class="log-box" id="log-box"></div>
-  </div>
 
-  <!-- Resultado -->
-  <div class="result-card" id="result-card">
-    <div class="result-title">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-      Planilha gerada com sucesso
+    <!-- Resultado -->
+    <div class="result-card" id="result-card">
+      <div class="result-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+        Planilha gerada com sucesso
+      </div>
+      <div class="stats-grid" id="stats-grid"></div>
+      <button class="btn-download" id="btn-download">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Baixar Controlados_FormulaAnimal.xlsx
+      </button>
     </div>
-    <div class="stats-grid" id="stats-grid"></div>
-    <button class="btn-download" id="btn-download">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      Baixar Controlados_FormulaAnimal.xlsx
-    </button>
   </div>
 
-  <!-- Instruções -->
-  <div style="margin-top:40px">
-    <div class="section-label">02 · Como usar</div>
-    <div class="steps">
-      <div class="step">
-        <div class="step-num">1</div>
+  <!-- ══════════ TAB HISTÓRICO ══════════ -->
+  <div class="tab-panel" id="tab-historico">
+    <div class="section-label">Registros anteriores</div>
+
+    <div class="hist-toolbar">
+      <button class="btn-secondary" id="btn-backup" onclick="exportarBackup()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Exportar backup (JSON)
+      </button>
+      <label class="btn-secondary" style="cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        Importar backup
+        <input type="file" accept=".json" id="file-backup" style="display:none" onchange="importarBackup(this)" />
+      </label>
+    </div>
+
+    <div id="hist-lista"></div>
+  </div>
+
+  <!-- ══════════ TAB AJUDA ══════════ -->
+  <div class="tab-panel" id="tab-ajuda">
+    <div class="section-label">Passo a passo</div>
+    <div class="steps-info">
+      <div class="step-info">
+        <div class="step-num-i">1</div>
         <div>
-          <div class="step-title">Exporte os relatórios do Farma Fácil</div>
-          <div class="step-desc">
-            No Farma Fácil exporte o <code>Movimento Controlados Período</code> e o
-            <code>Registro de Receituário Geral</code> no formato <code>.XLS</code>.
-          </div>
+          <div class="step-title-i">Exporte os relatórios do Farma Fácil</div>
+          <div class="step-desc-i">Exporte o <code>Movimento Controlados Período</code> e o <code>Registro de Receituário Geral</code> no formato <code>.XLS</code>.</div>
         </div>
       </div>
-      <div class="step">
-        <div class="step-num">2</div>
+      <div class="step-info">
+        <div class="step-num-i">2</div>
         <div>
-          <div class="step-title">Faça o upload acima</div>
-          <div class="step-desc">
-            Arraste os dois arquivos para as zonas de upload ou clique para selecionar.
-            Não importa o nome que os arquivos tiverem.
-          </div>
+          <div class="step-title-i">Faça o upload dos dois arquivos</div>
+          <div class="step-desc-i">Arraste os arquivos para as zonas de upload. O nome do arquivo não importa.</div>
         </div>
       </div>
-      <div class="step">
-        <div class="step-num">3</div>
+      <div class="step-info">
+        <div class="step-num-i">3</div>
         <div>
-          <div class="step-title">Informe o estoque inicial</div>
-          <div class="step-desc">
-            Digite o estoque inicial do período em gramas. Se tiver mais de uma substância,
-            você pode ajustar na célula <code>D5</code> de cada aba <code>CORPO_*</code> depois.
-          </div>
+          <div class="step-title-i">Verifique o estoque inicial</div>
+          <div class="step-desc-i">O sistema pré-preenche os campos com o estoque final do último período gravado no histórico. Confira e ajuste se necessário.</div>
         </div>
       </div>
-      <div class="step">
-        <div class="step-num">4</div>
+      <div class="step-info">
+        <div class="step-num-i">4</div>
         <div>
-          <div class="step-title">Gere e baixe o Excel</div>
-          <div class="step-desc">
-            Clique em <strong>Gerar Planilha</strong>. O arquivo gerado contém as abas
-            <code>RESUMO</code>, <code>CONTROLE</code>, <code>CORPO_*</code> por substância e
-            <code>FICHAS_IMPRIMIR</code> — tudo pronto para transcrever no livro físico.
-          </div>
+          <div class="step-title-i">Gere e baixe o Excel</div>
+          <div class="step-desc-i">Clique em <strong>Gerar Planilha</strong>. O registro é salvo automaticamente no histórico com os estoques finais calculados.</div>
         </div>
       </div>
+      <div class="step-info">
+        <div class="step-num-i">5</div>
+        <div>
+          <div class="step-title-i">Faça backup regularmente</div>
+          <div class="step-desc-i">Na aba <strong>Histórico</strong>, clique em <strong>Exportar backup (JSON)</strong> e guarde o arquivo em local seguro (Google Drive, pen drive). Para restaurar, use <strong>Importar backup</strong>.</div>
+        </div>
+      </div>
+      <div class="step-info">
+        <div class="step-num-i">6</div>
+        <div>
+          <div class="step-title-i">Próximo período</div>
+          <div class="step-desc-i">No mês seguinte, os campos de estoque inicial já estarão preenchidos com os valores finais calculados do período anterior.</div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:20px;padding:16px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)">
+      <p style="font-family:var(--mono);font-size:.72rem;color:var(--muted);line-height:1.7">
+        ⚠ O histórico é salvo no <strong>armazenamento local do navegador</strong> (localStorage).
+        Não limpe os dados do site no navegador sem antes exportar o backup JSON.
+        O backup JSON pode ser importado em qualquer navegador ou computador.
+      </p>
     </div>
   </div>
 
@@ -622,9 +346,7 @@
     <p>Fórmula Animal · Paulo Edson Fernandes — CRF 9303 · GO 0198-8</p>
     <p style="margin-top:4px">Processamento 100% local — nenhum dado é enviado a servidores</p>
   </footer>
-
 </div>
-
 <script src="app.js"></script>
 </body>
 </html>
