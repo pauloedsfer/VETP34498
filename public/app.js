@@ -1,125 +1,155 @@
 /**
- * CONTROLADOS — FÓRMULA ANIMAL
- * Lógica client-side: lê os dois XLS do Farma Fácil,
- * cruza os dados e gera o Excel de controlados para download.
- * Usa SheetJS (XLSX) que já está carregado no HTML.
+ * CONTROLADOS v2.0 — FÓRMULA ANIMAL
+ * ─────────────────────────────────────────────────────
+ * Novidades v2:
+ *  • Estoque inicial individual por substância
+ *  • Histórico persistente (localStorage)
+ *  • Estoque final → inicial automático no próximo período
+ *  • Backup/restauração em JSON
  */
 
-// ── Estado ───────────────────────────────────────────────────────────────
-let dadosMov = null;   // dados extraídos do MOVIMENTO.XLS
-let dadosCE  = null;   // dados extraídos do CLIENTE_END.XLS
-let xlsxBlob = null;   // arquivo Excel gerado
+// ── Substâncias controladas cadastradas ──────────────────────────────────
+const SUBSTANCIAS = [
+  { nome: 'Gabapentina',  lista: 'C1', dcb: '04369' },
+  { nome: 'Fluoxetina',   lista: 'C1', dcb: '03094' },
+  { nome: 'Amitriptilina',lista: 'C1', dcb: '00423' },
+  { nome: 'Selegilina',   lista: 'C1', dcb: '07929' },
+  { nome: 'Tramadol',     lista: 'A2', dcb: '08806' },
+  { nome: 'Codeína',      lista: 'A2', dcb: '01706' },
+  { nome: 'Ribavirina',   lista: 'C1', dcb: '07168' },
+];
 
-// ── Referências DOM ───────────────────────────────────────────────────────
-const zoneMov    = document.getElementById('zone-mov');
-const zoneCE     = document.getElementById('zone-ce');
-const fileMov    = document.getElementById('file-mov');
-const fileCE     = document.getElementById('file-ce');
-const fnameMov   = document.getElementById('fname-mov');
-const fnameCE    = document.getElementById('fname-ce');
-const btnGerar   = document.getElementById('btn-gerar');
-const btnDownload= document.getElementById('btn-download');
-const progWrap   = document.getElementById('progress-wrap');
-const progBar    = document.getElementById('progress-bar');
-const progText   = document.getElementById('progress-text');
-const logBox     = document.getElementById('log-box');
-const resultCard = document.getElementById('result-card');
-const statsGrid  = document.getElementById('stats-grid');
+// ── Chave do localStorage ─────────────────────────────────────────────────
+const LS_KEY = 'controlados_fa_v2';
 
-// ── Helpers visuais ───────────────────────────────────────────────────────
-function setProgress(pct, txt) {
-  progWrap.classList.add('visible');
-  progBar.style.width = pct + '%';
-  progText.textContent = txt;
+// ── Estado global ──────────────────────────────────────────────────────────
+let dadosMov  = null;
+let dadosCE   = null;
+let xlsxBlob  = null;
+
+// ── Helpers de localStorage ───────────────────────────────────────────────
+function loadHistorico() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch(e) { return []; }
 }
 
-function log(msg, tipo = '') {
-  logBox.classList.add('visible');
-  const line = document.createElement('div');
-  if (tipo) line.className = 'log-' + tipo;
-  line.textContent = msg;
-  logBox.appendChild(line);
-  logBox.scrollTop = logBox.scrollHeight;
+function saveHistorico(hist) {
+  localStorage.setItem(LS_KEY, JSON.stringify(hist));
 }
 
-function checkReady() {
-  btnGerar.disabled = !(dadosMov && dadosCE);
+/** Retorna o último estoque final registrado para uma substância */
+function ultimoEstoqueFinal(nomeSubst) {
+  const hist = loadHistorico();
+  if (!hist.length) return 0;
+  // percorre do mais recente para o mais antigo
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const reg = hist[i];
+    if (reg.estoquesFinal && reg.estoquesFinal[nomeSubst] !== undefined) {
+      return reg.estoquesFinal[nomeSubst];
+    }
+  }
+  return 0;
+}
+
+// ── Montar grid de estoques iniciais ─────────────────────────────────────
+function montarEstGrid() {
+  const grid = document.getElementById('est-grid');
+  grid.innerHTML = '';
+  SUBSTANCIAS.forEach(s => {
+    const ultimo = ultimoEstoqueFinal(s.nome);
+    const div = document.createElement('div');
+    div.className = 'est-field';
+    div.innerHTML = `
+      <div class="subst-name">${s.nome}</div>
+      <label>Lista ${s.lista} · DCB ${s.dcb}</label>
+      <input type="number" id="est-${s.nome}" value="${ultimo}" step="0.0001" min="0" />
+      <div class="last-val">${ultimo > 0 ? '↑ do período anterior: ' + ultimo.toFixed(4) + ' g' : 'Sem histórico anterior'}</div>
+    `;
+    grid.appendChild(div);
+  });
+}
+
+function getEstoqueInicial() {
+  const est = {};
+  SUBSTANCIAS.forEach(s => {
+    const input = document.getElementById('est-' + s.nome);
+    est[s.nome] = input ? (parseFloat(input.value) || 0) : 0;
+  });
+  return est;
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────
+function switchTab(id) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  event.target.classList.add('active');
+  if (id === 'historico') renderHistorico();
 }
 
 // ── Upload handlers ───────────────────────────────────────────────────────
-function setupDrop(zone, input, fnameEl, tipo) {
-  input.addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    readXLS(file, tipo, fnameEl, zone);
-  });
+function setupDrop(zoneId, inputId, fnameId, tipo) {
+  const zone  = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  const fnEl  = document.getElementById(fnameId);
 
-  zone.addEventListener('dragover', e => {
-    e.preventDefault();
-    zone.classList.add('drag-over');
+  input.addEventListener('change', e => {
+    if (e.target.files[0]) readXLS(e.target.files[0], tipo, fnEl, zone);
   });
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
   zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
   zone.addEventListener('drop', e => {
-    e.preventDefault();
-    zone.classList.remove('drag-over');
-    const file = e.dataTransfer.files[0];
-    if (!file) return;
-    readXLS(file, tipo, fnameEl, zone);
+    e.preventDefault(); zone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) readXLS(e.dataTransfer.files[0], tipo, fnEl, zone);
   });
 }
 
-function readXLS(file, tipo, fnameEl, zone) {
+function readXLS(file, tipo, fnEl, zone) {
   const reader = new FileReader();
   reader.onload = e => {
     try {
-      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', codepage: 1252 });
-      const sh = wb.Sheets[wb.SheetNames[0]];
+      const wb  = XLSX.read(new Uint8Array(e.target.result), { type: 'array', codepage: 1252 });
+      const sh  = wb.Sheets[wb.SheetNames[0]];
       const raw = XLSX.utils.sheet_to_json(sh, { header: 1, defval: '' });
-
       if (tipo === 'mov') {
         dadosMov = raw;
-        fnameEl.textContent = '✓ ' + file.name;
+        fnEl.textContent = '✓ ' + file.name;
         zone.classList.add('ready');
-        log(`MOVIMENTO carregado: ${raw.length} linhas`, 'ok');
+        log(`MOVIMENTO carregado — ${raw.length} linhas`, 'ok');
       } else {
         dadosCE = raw;
-        fnameEl.textContent = '✓ ' + file.name;
+        fnEl.textContent = '✓ ' + file.name;
         zone.classList.add('ready');
-        log(`CLIENTE_END carregado: ${raw.length} linhas`, 'ok');
+        log(`CLIENTE_END carregado — ${raw.length} linhas`, 'ok');
       }
       checkReady();
-    } catch(err) {
-      log('Erro ao ler arquivo: ' + err.message, 'err');
-    }
+    } catch(err) { log('Erro ao ler arquivo: ' + err.message, 'err'); }
   };
   reader.readAsArrayBuffer(file);
 }
 
-setupDrop(zoneMov, fileMov, fnameMov, 'mov');
-setupDrop(zoneCE,  fileCE,  fnameCE,  'ce');
-
-// ── Extração do MOVIMENTO ─────────────────────────────────────────────────
+// ── Extração MOVIMENTO ────────────────────────────────────────────────────
 function extrairMovimento(raw) {
-  const registros = [];
-  let substancia = '', lista = '';
-
+  const recs = [];
+  let subst = '', lista = '';
   function cell(row, c) {
     if (!row) return '';
     const v = row[c];
-    return v !== undefined && v !== null ? String(v).trim() : '';
+    return (v !== undefined && v !== null) ? String(v).trim() : '';
   }
-
+  function limpaNr(v) {
+    const n = parseFloat(String(v));
+    return (!isNaN(n) && String(v).trim() === String(n)) ? String(Math.round(n)) : String(v).trim();
+  }
   for (let r = 0; r < raw.length; r++) {
     const row = raw[r];
-
-    // linha de cabeçalho de substância (col 6 contém 'Produto:')
     if (String(row[6] || '').includes('Produto:')) {
-      substancia = cell(row, 8);
-      lista      = cell(row, 3);
+      subst = cell(row, 8);
+      lista = cell(row, 3);
       continue;
     }
-
-    // linha de dispensação (col 4 == 'O.M.')
     if (cell(row, 4) === 'O.M.') {
       const dataStr = cell(row, 0);
       let dt = null;
@@ -130,77 +160,53 @@ function extrairMovimento(raw) {
           dt = new Date(y, parseInt(p[1]) - 1, parseInt(p[0]));
         }
       } catch(e) {}
-
       let qtdG = null;
-      try { qtdG = parseFloat(String(row[17]).replace(',','.')); } catch(e) {}
-
+      try { qtdG = parseFloat(String(row[17]).replace(',', '.')); } catch(e) {}
       const crmvRaw = cell(row, 20);
       const crmvNr  = crmvRaw.replace(/CRMV\s+\w+:\s*/i, '').trim();
-
-      function limpaNr(v) {
-        const s = String(v).trim();
-        const n = parseFloat(s);
-        return !isNaN(n) && s === String(n) ? String(Math.round(n)) : s;
-      }
-
-      registros.push({
-        substancia, lista,
-        data: dt, dataStr,
-        tutor:     cell(row, 7),
-        nrOm:      limpaNr(row[11]),
-        nrDoc:     limpaNr(row[12]),
-        calculo:   cell(row, 15),
-        qtdG, crmvRaw, crmvNr,
+      recs.push({
+        substancia: subst, lista, data: dt, dataStr,
+        tutor: cell(row, 7),
+        nrOm: limpaNr(row[11]), nrDoc: limpaNr(row[12]),
+        calculo: cell(row, 15), qtdG, crmvRaw, crmvNr,
         nrReceita: limpaNr(row[25]),
       });
     }
   }
-  return registros;
+  return recs;
 }
 
-// ── Extração do CLIENTE_END ───────────────────────────────────────────────
+// ── Extração CLIENTE_END ──────────────────────────────────────────────────
 function extrairClienteEnd(raw) {
   const dados = {};
-
   function cell(r, c) {
     if (r < 0 || r >= raw.length) return '';
     const v = raw[r][c];
-    return v !== undefined && v !== null ? String(v).trim() : '';
+    return (v !== undefined && v !== null) ? String(v).trim() : '';
   }
-
   for (let r = 0; r < raw.length; r++) {
     const status = cell(r, 12);
     if (status !== 'Ativa' && status !== 'Cancelada') continue;
-
     const nrRaw = cell(r, 36);
     let nr = nrRaw;
     const nrF = parseFloat(nrRaw);
     if (!isNaN(nrF)) nr = String(Math.round(nrF));
-
-    const c1 = cell(r, 37);
-    const c2 = cell(r + 1, 37);
-    const cliente = (c1 + ' ' + c2).trim();
-
-    const e1 = cell(r, 52);
-    const e2 = cell(r + 1, 52);
-    const endereco = (e1 + ' ' + e2).trim().replace(/(\d+)\.0\b/g, '$1');
-
+    const cliente  = (cell(r, 37) + ' ' + cell(r+1, 37)).trim();
+    const end_l1   = cell(r, 52);
+    const end_l2   = cell(r+1, 52);
+    const endereco = (end_l1 + ' ' + end_l2).trim().replace(/(\d+)\.0\b/g, '$1');
     let prescritor = '', crmvNr = '', qtdeTexto = '', formula = '', doseMg = '';
-
     for (let off = 3; off < 10; off++) {
       if (r + off >= raw.length) break;
       if (cell(r + off, 0) === 'Prescritor:') {
         const pr = r + off;
         const p1 = cell(pr, 11);
-        const p2 = cell(pr + 1, 11);
-        prescritor = (p1 + ' ' + (cell(pr + 1, 0) === '' ? p2 : '')).trim();
-
+        const p2 = (cell(pr+1, 0) === '') ? cell(pr+1, 11) : '';
+        prescritor = (p1 + ' ' + p2).trim();
         const cv = cell(pr, 43);
         const cvF = parseFloat(cv);
         crmvNr = !isNaN(cvF) ? String(Math.round(cvF)) : cv;
-
         qtdeTexto = cell(pr, 59);
-
         const fr = pr + 2;
         if (fr < raw.length) {
           formula = cell(fr, 43);
@@ -211,7 +217,6 @@ function extrairClienteEnd(raw) {
         break;
       }
     }
-
     dados[nr] = { status, cliente, endereco, prescritor, crmvNr, qtdeTexto, formula, doseMg };
   }
   return dados;
@@ -221,8 +226,7 @@ function extrairClienteEnd(raw) {
 function cruzar(movs, ced) {
   return movs.map(m => {
     const ce = ced[m.nrOm] || {};
-    return {
-      ...m,
+    return { ...m,
       clienteFull: ce.cliente    || m.tutor,
       endereco:    ce.endereco   || '',
       prescritor:  ce.prescritor || '',
@@ -234,54 +238,53 @@ function cruzar(movs, ced) {
   });
 }
 
-// ── Geração do Excel ──────────────────────────────────────────────────────
-function gerarExcel(dados, estInicialPadrao, nomeEstab) {
+// ── Geração Excel ─────────────────────────────────────────────────────────
+function gerarExcel(dados, estInicial, nomeEstab, periodoLabel) {
   const wb = XLSX.utils.book_new();
-
-  // substâncias únicas mantendo ordem
   const substs = [...new Set(dados.map(d => d.substancia))];
-  const paleta = ['4472C4','70AD47','ED7D31','FFC000','5B9BD5','A9D18E'];
-  const scoreColor = {};
-  substs.forEach((s, i) => scoreColor[s] = paleta[i % paleta.length]);
 
-  const datas  = dados.filter(d => d.data).map(d => d.data);
+  const datas   = dados.filter(d => d.data).map(d => d.data);
   const periodo = datas.length
-    ? `Período: ${fmtData(new Date(Math.min(...datas)))} a ${fmtData(new Date(Math.max(...datas)))}`
+    ? `${fmtData(new Date(Math.min(...datas)))} a ${fmtData(new Date(Math.max(...datas)))}`
     : '';
+  const titulo  = periodoLabel || periodo;
 
-  // helper: adiciona linha a uma worksheet (array de arrays)
-  function makeWS(rows) {
-    return XLSX.utils.aoa_to_sheet(rows);
-  }
+  const estoquesFinal = {};
 
-  // ── RESUMO ────────────────────────────────────────────────────────────
+  // ── RESUMO ──
   const resumoRows = [
-    [`RESUMO DE MOVIMENTAÇÃO — CONTROLADOS VETERINÁRIOS — ${nomeEstab}`],
-    [periodo],
+    [`RELATÓRIO DE MOVIMENTAÇÃO — CONTROLADOS VETERINÁRIOS — ${nomeEstab}`],
+    [`Período: ${titulo}`],
     [],
-    ['Substância','Lista','Dispensações','Total (g)','Canceladas','Ativas'],
+    ['Substância','Lista','DCB','Est. Inicial (g)','Dispensações','Total Saída (g)','Est. Final (g)'],
   ];
-  for (const s of substs) {
-    const ds  = dados.filter(d => d.substancia === s);
-    const at  = ds.filter(d => d.status === 'Ativa').length;
-    const ca  = ds.filter(d => d.status === 'Cancelada').length;
-    const tg  = ds.filter(d => d.status === 'Ativa' && d.qtdG)
-                  .reduce((acc, d) => acc + d.qtdG, 0);
-    const li  = ds[0]?.lista || '';
-    resumoRows.push([s, li, ds.length, Math.round(tg * 10000) / 10000, ca, at]);
+  for (const s of SUBSTANCIAS) {
+    // encontra dados desta substância pelo nome ou pelo DCB
+    const ds = dados.filter(d =>
+      d.substancia.toUpperCase().includes(s.nome.toUpperCase()) ||
+      d.substancia.includes(s.dcb)
+    );
+    const ativas = ds.filter(d => d.status === 'Ativa');
+    const totalSaida = arred(ativas.reduce((a, d) => a + (d.qtdG || 0), 0));
+    const estIni  = estInicial[s.nome] || 0;
+    const estFin  = arred(estIni - totalSaida);
+    estoquesFinal[s.nome] = estFin;
+    resumoRows.push([
+      s.nome, s.lista, s.dcb,
+      estIni, ativas.length, totalSaida, estFin
+    ]);
   }
-  const wsResumo = makeWS(resumoRows);
-  wsResumo['!cols'] = [{wch:30},{wch:8},{wch:14},{wch:12},{wch:12},{wch:10}];
-  XLSX.utils.book_append_sheet(wb, wsResumo, 'RESUMO');
+  const wsRes = XLSX.utils.aoa_to_sheet(resumoRows);
+  wsRes['!cols'] = [{wch:20},{wch:7},{wch:8},{wch:15},{wch:14},{wch:16},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, wsRes, 'RESUMO');
 
-  // ── CONTROLE ──────────────────────────────────────────────────────────
+  // ── CONTROLE (banco geral) ──
   const ctrlRows = [
-    [`BASE DE DADOS — CONTROLADOS ${nomeEstab.toUpperCase()}`],
-    [periodo],
+    [`BASE DE DADOS — ${nomeEstab.toUpperCase()} — ${titulo}`],
     [],
     ['Nº OM','Nº DOC','Data','Tutor/Cliente','Endereço','CRMV nº',
-     'Veterinário','Substância','Lista','Fórmula (Cálculo)',
-     'Dose (mg)','Qtde Texto','Qtd (g)','Nº Receita','Status'],
+     'Veterinário','Substância','Lista','Fórmula','Dose (mg)',
+     'Qtde Texto','Qtd (g)','Nº Receita','Status'],
     ...dados.map(d => [
       d.nrOm, d.nrDoc,
       d.data ? fmtData(d.data) : d.dataStr,
@@ -292,62 +295,75 @@ function gerarExcel(dados, estInicialPadrao, nomeEstab) {
       d.nrReceita, d.status,
     ])
   ];
-  const wsCtrl = makeWS(ctrlRows);
-  wsCtrl['!cols'] = [
-    {wch:9},{wch:9},{wch:12},{wch:30},{wch:40},{wch:10},
-    {wch:24},{wch:22},{wch:6},{wch:18},{wch:10},{wch:16},{wch:9},{wch:14},{wch:10}
-  ];
+  const wsCtrl = XLSX.utils.aoa_to_sheet(ctrlRows);
+  wsCtrl['!cols'] = [{wch:9},{wch:9},{wch:12},{wch:30},{wch:40},{wch:10},{wch:24},
+                     {wch:20},{wch:6},{wch:18},{wch:10},{wch:16},{wch:9},{wch:14},{wch:10}];
   XLSX.utils.book_append_sheet(wb, wsCtrl, 'CONTROLE');
 
-  // ── CORPO por substância ──────────────────────────────────────────────
-  for (const s of substs) {
-    const ds   = dados.filter(d => d.substancia === s && d.status === 'Ativa');
-    const li   = ds[0]?.lista || '';
-    const safe = s.replace(/[^\w]/g, '_').substring(0, 25);
+  // ── CORPO por substância ──
+  for (const s of SUBSTANCIAS) {
+    const ds = dados.filter(d =>
+      (d.substancia.toUpperCase().includes(s.nome.toUpperCase()) ||
+       d.substancia.includes(s.dcb)) && d.status === 'Ativa'
+    );
+
+    const safe = s.nome.replace(/[^\w]/g, '_');
+    const estIni = estInicial[s.nome] || 0;
 
     const rows = [
       ['LIVRO DE REGISTRO DE ESTOQUE DE SUBSTÂNCIAS SUJEITAS A CONTROLE ESPECIAL DE USO VETERINÁRIO'],
-      [`SUBSTÂNCIA (DCB): ${s}   |   Lista: ${li}   |   ${nomeEstab}`],
+      [`SUBSTÂNCIA (DCB): ${s.nome}   |   Lista: ${s.lista}   |   ${nomeEstab}`],
+      [`Período: ${titulo}`],
       [],
       ['DIA','MÊS','ANO','EST. INICIAL (g)','ENTRADA (g)','SAÍDA (g)',
        'PERDAS (g)','EST. FINAL (g)','REG / NR DOC','OUTRAS INFORMAÇÕES'],
-      // linha 5: estoque inicial — preencher
-      ['','','ESTOQUE INICIAL →', estInicialPadrao, '', '', '', estInicialPadrao,
-       '','▶ Preencha o estoque inicial na coluna D desta linha'],
+      // linha de estoque inicial
+      ['', '', 'ESTOQUE INICIAL', estIni, '', '', '', estIni,
+       '', `Estoque inicial do período — ${titulo}`],
     ];
 
-    let estoqueCalc = estInicialPadrao;
+    let saldo = estIni;
     for (const d of ds) {
-      const dt = d.data;
+      const dt    = d.data;
       const saida = d.qtdG || 0;
-      const novoEst = Math.round((estoqueCalc - saida) * 10000) / 10000;
-      const outras = `Receita: ${d.nrReceita} | ${d.crmvRaw} | ${d.prescritor} | ${d.calculo}`;
+      const entrada = 0;
+      const perda   = 0;
+      const novoSaldo = arred(saldo + entrada - saida - perda);
+      const outras = [
+        `Receita: ${d.nrReceita}`,
+        d.crmvRaw,
+        d.prescritor,
+        d.calculo,
+      ].filter(Boolean).join(' | ');
+
       rows.push([
-        dt ? dt.getDate()     : '',
-        dt ? dt.getMonth() + 1: '',
-        dt ? dt.getFullYear() : '',
-        estoqueCalc,    // est. inicial
-        '',             // entrada
-        saida,          // saída
-        '',             // perdas
-        novoEst,        // est. final
+        dt ? dt.getDate()      : '',
+        dt ? dt.getMonth() + 1 : '',
+        dt ? dt.getFullYear()  : '',
+        arred(saldo),
+        entrada || '',
+        saida   || '',
+        perda   || '',
+        novoSaldo,
         `${d.nrOm} / ${d.nrDoc}`,
         outras,
       ]);
-      estoqueCalc = novoEst;
+      saldo = novoSaldo;
     }
 
-    const ws2 = makeWS(rows);
-    ws2['!cols'] = [
-      {wch:6},{wch:6},{wch:6},{wch:14},{wch:11},
-      {wch:11},{wch:9},{wch:14},{wch:20},{wch:55}
-    ];
+    // linha de estoque final
+    rows.push(['', '', 'ESTOQUE FINAL', '', '', '', '', arred(saldo),
+               '', `Estoque final do período — transferir para próximo período`]);
+
+    const ws2 = XLSX.utils.aoa_to_sheet(rows);
+    ws2['!cols'] = [{wch:5},{wch:5},{wch:14},{wch:14},{wch:11},{wch:11},
+                    {wch:9},{wch:14},{wch:20},{wch:55}];
     XLSX.utils.book_append_sheet(wb, ws2, `CORPO_${safe}`);
   }
 
-  // ── FICHAS_IMPRIMIR ───────────────────────────────────────────────────
+  // ── FICHAS ──
   const fichasRows = [
-    ['FICHAS INDIVIDUAIS DE DISPENSAÇÃO — IMPRIMIR E COLAR NO LIVRO FÍSICO'],
+    [`FICHAS DE DISPENSAÇÃO — ${nomeEstab} — ${titulo}`],
     ['Nº OM','Nº DOC','Data','Tutor','Endereço','Veterinário',
      'CRMV','Substância','Fórmula','Qtd (g)','Nº Receita','Status'],
     ...dados.map(d => [
@@ -358,105 +374,250 @@ function gerarExcel(dados, estInicialPadrao, nomeEstab) {
       d.substancia, d.calculo, d.qtdG, d.nrReceita, d.status,
     ])
   ];
-  const wsFichas = makeWS(fichasRows);
-  wsFichas['!cols'] = [
-    {wch:9},{wch:9},{wch:12},{wch:28},{wch:38},
-    {wch:22},{wch:10},{wch:20},{wch:16},{wch:9},{wch:14},{wch:10}
-  ];
+  const wsFichas = XLSX.utils.aoa_to_sheet(fichasRows);
+  wsFichas['!cols'] = [{wch:9},{wch:9},{wch:12},{wch:28},{wch:38},
+                       {wch:22},{wch:10},{wch:20},{wch:16},{wch:9},{wch:14},{wch:10}];
   XLSX.utils.book_append_sheet(wb, wsFichas, 'FICHAS_IMPRIMIR');
 
-  // Gerar o arquivo
   const wbOut = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  return new Blob([wbOut], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  return {
+    blob: new Blob([wbOut], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    }),
+    estoquesFinal,
+  };
+}
+
+// ── Salvar no histórico ────────────────────────────────────────────────────
+function salvarNoHistorico(dados, estInicial, estoquesFinal, periodoLabel, nomeEstab) {
+  const hist = loadHistorico();
+  const datas = dados.filter(d => d.data).map(d => d.data);
+  const registro = {
+    id:           Date.now(),
+    geradoEm:     new Date().toISOString(),
+    periodoLabel: periodoLabel,
+    estabelecimento: nomeEstab,
+    dataInicio:   datas.length ? new Date(Math.min(...datas)).toISOString() : null,
+    dataFim:      datas.length ? new Date(Math.max(...datas)).toISOString() : null,
+    totalRegistros: dados.length,
+    substanciasAtivas: [...new Set(dados.filter(d => d.status === 'Ativa').map(d => d.substancia))],
+    estoquesInicial: estInicial,
+    estoquesFinal:   estoquesFinal,
+  };
+  hist.push(registro);
+  saveHistorico(hist);
+}
+
+// ── Renderizar histórico ──────────────────────────────────────────────────
+function renderHistorico() {
+  const hist     = loadHistorico();
+  const lista    = document.getElementById('hist-lista');
+  if (!hist.length) {
+    lista.innerHTML = `<div class="hist-empty">Nenhum registro gerado ainda.<br>Gere sua primeira planilha para começar o histórico.</div>`;
+    return;
+  }
+  lista.innerHTML = '';
+  // do mais recente para o mais antigo
+  [...hist].reverse().forEach(reg => {
+    const dt = new Date(reg.geradoEm);
+    const dtStr = dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    const div = document.createElement('div');
+    div.className = 'hist-entry';
+    // pills de substâncias com estoque final
+    const pillsHtml = SUBSTANCIAS.map(s => {
+      const fin = reg.estoquesFinal?.[s.nome];
+      const ini = reg.estoquesInicial?.[s.nome];
+      if (fin === undefined && ini === undefined) return '';
+      return `<span class="hist-pill">${s.nome} <span>${fin !== undefined ? fin.toFixed(4) + 'g' : '—'}</span></span>`;
+    }).join('');
+
+    div.innerHTML = `
+      <div class="hist-header">
+        <div class="hist-periodo">${reg.periodoLabel || 'Período ' + (reg.dataInicio ? fmtData(new Date(reg.dataInicio)) : '?')}</div>
+        <div class="hist-date">${dtStr}</div>
+      </div>
+      <div style="font-family:var(--mono);font-size:.72rem;color:var(--muted);margin-bottom:8px">
+        ${reg.totalRegistros} dispensações · ${reg.estabelecimento}
+      </div>
+      <div style="font-family:var(--mono);font-size:.68rem;color:var(--muted);margin-bottom:8px">
+        Estoques finais:
+      </div>
+      <div class="hist-substs">${pillsHtml}</div>
+      <div class="hist-actions">
+        <button class="btn-secondary" style="font-size:.75rem;padding:7px 14px"
+          onclick="usarComoInicial(${reg.id})">
+          ↑ Usar como estoque inicial
+        </button>
+        <button class="btn-danger" onclick="excluirRegistro(${reg.id})">Excluir</button>
+      </div>`;
+    lista.appendChild(div);
   });
 }
 
+function usarComoInicial(id) {
+  const hist = loadHistorico();
+  const reg  = hist.find(r => r.id === id);
+  if (!reg || !reg.estoquesFinal) return;
+  SUBSTANCIAS.forEach(s => {
+    const input = document.getElementById('est-' + s.nome);
+    if (input && reg.estoquesFinal[s.nome] !== undefined) {
+      input.value = reg.estoquesFinal[s.nome];
+    }
+  });
+  switchTab('gerar');
+  // Simula click na aba Gerar
+  document.querySelectorAll('.tab')[0].classList.add('active');
+  document.querySelectorAll('.tab')[1].classList.remove('active');
+  log('Estoques iniciais carregados do registro selecionado.', 'ok');
+}
+
+function excluirRegistro(id) {
+  if (!confirm('Excluir este registro do histórico?')) return;
+  const hist = loadHistorico().filter(r => r.id !== id);
+  saveHistorico(hist);
+  renderHistorico();
+}
+
+// ── Backup / Restauração ──────────────────────────────────────────────────
+function exportarBackup() {
+  const hist = loadHistorico();
+  const json = JSON.stringify({ versao: 2, exportadoEm: new Date().toISOString(), historico: hist }, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `backup_controlados_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importarBackup(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      const hist = data.historico || data; // compatibilidade
+      if (!Array.isArray(hist)) throw new Error('Formato inválido');
+      if (!confirm(`Importar ${hist.length} registros? O histórico atual será substituído.`)) return;
+      saveHistorico(hist);
+      renderHistorico();
+      montarEstGrid();
+      alert('Backup importado com sucesso!');
+    } catch(err) {
+      alert('Erro ao importar: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────
 function fmtData(d) {
   if (!d) return '';
-  const dd = String(d.getDate()).padStart(2,'0');
-  const mm = String(d.getMonth()+1).padStart(2,'0');
-  return `${dd}/${mm}/${d.getFullYear()}`;
+  return String(d.getDate()).padStart(2,'0') + '/' +
+         String(d.getMonth()+1).padStart(2,'0') + '/' +
+         d.getFullYear();
+}
+
+function arred(n) { return Math.round((n || 0) * 10000) / 10000; }
+
+function setProgress(pct, txt) {
+  document.getElementById('progress-wrap').classList.add('visible');
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('progress-text').textContent = txt;
+}
+
+function log(msg, tipo) {
+  const box = document.getElementById('log-box');
+  box.classList.add('visible');
+  const line = document.createElement('div');
+  if (tipo) line.className = 'log-' + tipo;
+  line.textContent = msg;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function checkReady() {
+  document.getElementById('btn-gerar').disabled = !(dadosMov && dadosCE);
 }
 
 // ── Botão Gerar ───────────────────────────────────────────────────────────
-btnGerar.addEventListener('click', async () => {
-  logBox.innerHTML = '';
-  resultCard.classList.remove('visible');
+document.getElementById('btn-gerar').addEventListener('click', async () => {
+  document.getElementById('log-box').innerHTML = '';
+  document.getElementById('result-card').classList.remove('visible');
   xlsxBlob = null;
 
-  const estInicial  = parseFloat(document.getElementById('est-inicial').value) || 0;
-  const nomeEstab   = document.getElementById('estabelecimento').value.trim() || 'Fórmula Animal';
+  const nomeEstab    = document.getElementById('estabelecimento').value.trim() || 'Fórmula Animal';
+  const periodoLabel = document.getElementById('periodo-label').value.trim();
+  const estInicial   = getEstoqueInicial();
 
-  // Spinner no botão
-  btnGerar.disabled = true;
-  btnGerar.innerHTML = `<div class="spinner"></div> Processando...`;
+  const btn = document.getElementById('btn-gerar');
+  btn.disabled = true;
+  btn.innerHTML = `<div class="spinner"></div> Processando...`;
 
-  // Pequeno delay para o browser pintar
   await new Promise(r => setTimeout(r, 50));
 
   try {
     setProgress(10, 'Lendo MOVIMENTO.XLS...');
-    log('Iniciando extração do Movimento...', 'ok');
     const movs = extrairMovimento(dadosMov);
-    log(`  → ${movs.length} dispensações encontradas`);
+    log(`Movimento: ${movs.length} dispensações encontradas`, 'ok');
 
     setProgress(35, 'Lendo CLIENTE_END.XLS...');
-    log('Iniciando extração do Receituário...', 'ok');
     const ced = extrairClienteEnd(dadosCE);
-    log(`  → ${Object.keys(ced).length} registros de receituário encontrados`);
+    log(`Receituário: ${Object.keys(ced).length} registros encontrados`, 'ok');
 
     setProgress(55, 'Cruzando dados...');
-    log('Cruzando Movimento × Receituário pelo Nº OM...', 'ok');
     const dados = cruzar(movs, ced);
 
-    // verificar cruzamentos sem match
-    const semMatch = dados.filter(d => !d.endereco && !d.prescritor).length;
-    if (semMatch > 0)
-      log(`  ⚠ ${semMatch} registros sem correspondência no Receituário — verifique os períodos`, 'warn');
-
-    const substs  = [...new Set(dados.map(d => d.substancia))];
-    const ativas  = dados.filter(d => d.status === 'Ativa').length;
-    const totalG  = dados
-      .filter(d => d.status === 'Ativa' && d.qtdG)
-      .reduce((a, d) => a + d.qtdG, 0);
+    const semMatch = dados.filter(d => !d.prescritor).length;
+    if (semMatch > 0) log(`⚠ ${semMatch} registros sem correspondência no Receituário`, 'warn');
 
     setProgress(75, 'Gerando Excel...');
-    log(`Gerando planilha: ${substs.join(', ')}...`, 'ok');
-    xlsxBlob = gerarExcel(dados, estInicial, nomeEstab);
+    const { blob, estoquesFinal } = gerarExcel(dados, estInicial, nomeEstab, periodoLabel);
+    xlsxBlob = blob;
+
+    setProgress(90, 'Salvando histórico...');
+    salvarNoHistorico(dados, estInicial, estoquesFinal, periodoLabel, nomeEstab);
+    montarEstGrid(); // atualiza os campos com os novos valores finais
 
     setProgress(100, 'Concluído!');
-    log('Planilha gerada com sucesso!', 'ok');
+    log('Planilha gerada e histórico atualizado!', 'ok');
 
-    // Mostrar estatísticas
+    // Estatísticas
+    const ativas   = dados.filter(d => d.status === 'Ativa');
+    const substs   = [...new Set(dados.map(d => d.substancia))];
+    const totalG   = ativas.reduce((a, d) => a + (d.qtdG || 0), 0);
+    const statsGrid = document.getElementById('stats-grid');
     statsGrid.innerHTML = '';
-    const stats = [
-      { num: dados.length,               lbl: 'Dispensações' },
-      { num: ativas,                     lbl: 'Ativas' },
-      { num: substs.length,              lbl: 'Substâncias' },
-      { num: totalG.toFixed(4) + ' g',   lbl: 'Total saída' },
-    ];
-    stats.forEach(s => {
-      statsGrid.innerHTML += `
-        <div class="stat-box">
-          <div class="stat-num">${s.num}</div>
-          <div class="stat-lbl">${s.lbl}</div>
-        </div>`;
+    [
+      { num: dados.length,            lbl: 'Dispensações' },
+      { num: ativas.length,           lbl: 'Ativas' },
+      { num: substs.length,           lbl: 'Substâncias' },
+      { num: arred(totalG) + ' g',    lbl: 'Total saída' },
+    ].forEach(s => {
+      statsGrid.innerHTML += `<div class="stat-box"><div class="stat-num">${s.num}</div><div class="stat-lbl">${s.lbl}</div></div>`;
     });
 
-    resultCard.classList.add('visible');
+    // Mostrar estoques finais calculados
+    log('── Estoques finais calculados ──', 'ok');
+    SUBSTANCIAS.forEach(s => {
+      const fin = estoquesFinal[s.nome];
+      if (fin !== undefined) log(`  ${s.nome}: ${fin.toFixed(4)} g`, 'ok');
+    });
+
+    document.getElementById('result-card').classList.add('visible');
 
   } catch(err) {
     log('ERRO: ' + err.message, 'err');
     console.error(err);
     setProgress(0, 'Erro no processamento.');
   } finally {
-    btnGerar.disabled = false;
-    btnGerar.innerHTML = `
+    btn.disabled = false;
+    btn.innerHTML = `
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-        <path d="M2 17l10 5 10-5"/>
-        <path d="M2 12l10 5 10-5"/>
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
       </svg>
       Gerar Planilha de Controlados`;
     checkReady();
@@ -464,7 +625,7 @@ btnGerar.addEventListener('click', async () => {
 });
 
 // ── Botão Download ────────────────────────────────────────────────────────
-btnDownload.addEventListener('click', () => {
+document.getElementById('btn-download').addEventListener('click', () => {
   if (!xlsxBlob) return;
   const url = URL.createObjectURL(xlsxBlob);
   const a   = document.createElement('a');
@@ -473,3 +634,8 @@ btnDownload.addEventListener('click', () => {
   a.click();
   URL.revokeObjectURL(url);
 });
+
+// ── Init ──────────────────────────────────────────────────────────────────
+setupDrop('zone-mov', 'file-mov', 'fname-mov', 'mov');
+setupDrop('zone-ce',  'file-ce',  'fname-ce',  'ce');
+montarEstGrid();
